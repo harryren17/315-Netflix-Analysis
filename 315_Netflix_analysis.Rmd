@@ -1,0 +1,543 @@
+---
+title: "Analysis of Netflix Content: 36-315 Final Project"
+author: "Rachel Dolle, Ziyan Wang, Harry Ren, Rose Lee" 
+output:
+  html_document:
+    code_folding: show
+    toc: yes
+    toc_float: yes
+editor_options:
+  chunk_output_type: console
+---
+```{r global options, include = FALSE}
+knitr::opts_chunk$set(warning=FALSE, message=FALSE, echo=FALSE)
+```
+
+****
+
+
+```{r}
+library(tidyverse)
+```
+# Data Description
+Netflix is a subscription streaming service and production company. Founded in 1997, it currently has 221 million users worldwide.
+
+This data set consists of metadata on all TV shows and Movies on the streaming service. Data is updated every month and contains the following variables
+
+* Type: Tv Show or Movie
+* Title: Title of Media
+* Director: Director of Media
+* Cast: Main cast of Media
+* Country: Countries where production took place
+* Date_added: Date added to Netflix
+* release_year: Release year of the media
+* rating: Age rating
+* duration: season length or movie time length
+
+We will conduct a series of analyses and visualizations on this data to investigate the Netflix's overall release trends and how the COVID 19 pandemic potentially impacted these trends.
+
+# EDA and general statistics
+
+```{R}
+Netflix <- read.csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/
+master/data/2021/2021-04-20/netflix_titles.csv')
+```
+
+We begin with a general univariate analysis on the distribution of Netflix Movies vs Netflix TV Shows
+
+```{R}
+Netflix <- Netflix %>%
+mutate(date_added = as.Date(date_added, format = "%B %d, %Y"))
+```
+
+```{R}
+#type distribution bar graph
+#ggplot(Netflix, aes(x =type))+
+#  geom_bar(fill = "darkblue")
+
+#date added hist facet by type
+ggplot(Netflix, aes(x = date_added))+
+  geom_histogram(binwidth=100, fill = "darkblue")+
+  labs(x = "Show Release year")+
+  facet_wrap(~type)
+```
+
+We note that for the categorical "type" variable (which classifies each release as a 'Movie' or 'TV Show'), there are about 2x more movies than TV shows. Additionally, the faceted histogram of show release year demonstrates similar left skewed and unimodal distributions that start at around 2015 and have the mode at 2019. 
+
+We then analyze distribution based on whether the show/movie was added pre or post covid. To do this, we facet on a new binary variable called "precovid binary" this variable indicates whether or not the particular movie or show was added to the streaming service before or after 3/11/2020 (The date the World Health Organization declared Covid-19 a national pandemic).
+
+```{R}
+#Create Binary variable: pre/post covid by year
+Netflix <- mutate(Netflix,
+          precovid_binary = ifelse(date_added<as.Date("2020-03-11"), "Pre-covid", "Post-covid"))
+
+Netflix <- Netflix %>% filter(!is.na(precovid_binary))
+Netflix$precovid_binary <- factor(Netflix$precovid_binary, levels = c("Pre-covid", "Post-covid"))
+
+#date added hist by type facet on pre/post covid
+ggplot(Netflix, aes(x = date_added, fill = type))+
+  geom_histogram(binwidth=100)+
+  facet_wrap(~precovid_binary) +
+  labs(x = "Show Release year")
+
+```
+
+After faceting on "precovid binary", a brief observation reveals that post pandemic counts appear lower than the increasingly high counts that occurred in prepandemic years.
+
+
+```{R}
+#duration manipulation
+
+Netflix_shows <- Netflix %>% dplyr::filter(type == "TV Show")
+Netflix_movies <- Netflix %>% dplyr::filter(type == "Movie")
+
+Netflix_shows <- Netflix_shows %>%
+  mutate(duration = fct_relevel(duration, "1 Season","2 Seasons","3 Seasons","4 Seasons","5 Seasons","6 Seasons","7 Seasons","8 Seasons","9 Seasons","10 Seasons","11 Seasons","12 Seasons","13 Seasons","15 Seasons","16 Seasons"))
+
+Netflix_movies <- Netflix_movies %>%
+  mutate(duration = as.Date(duration, format = "%m"))
+
+```
+
+
+```{R}
+Netflix_movies$duration <- gsub(' min','', Netflix_movies$duration)
+Netflix_movies <- transform(Netflix_movies, duration = as.numeric(duration))
+
+#ggplot(Netflix_shows, aes(x = date_added, y = duration))+
+#  geom_point()+
+ # labs(title = "Date added vs show length", x="Date Added")
+
+#ggplot(Netflix_movies, aes(x = date_added, y = duration))+
+#  geom_point()+
+ # labs(title = "Date added vs show length", x="Date Added")
+```
+
+
+
+```{R}
+#change date_added to date type:
+Netflix <- Netflix %>% 
+  mutate(date_added = as.Date(date_added, format = "%B %d, %Y")) 
+
+#change release_year to date type:
+Netflix[8] <- lapply(Netflix[8], as.character)  
+
+Netflix <- Netflix %>% 
+  mutate(release_year = as.Date(release_year, format = "%Y"))
+```
+
+We then view the relation between the release year of Netflix media vs the date they were added to the Netflix platform with basic clustering.
+
+```{R}
+
+ggplot(Netflix, aes(x = release_year, y=date_added)) + 
+  scale_fill_gradient(low = "white", high = "orange") +
+  geom_point(alpha = 0.2) +
+  stat_density2d(aes(fill = after_stat(density)), geom = "tile",
+                 contour = FALSE, alpha = 0.8) + 
+  geom_density2d(color ="black", bins = 4) +
+  scale_x_date(limits = as.Date(c("1950-01-01","2023-01-01"))) +
+  scale_y_date(limits = as.Date(c("2000-01-01","2023-01-01"))) +
+  geom_abline() +
+  labs(title = "Media release date vs date added to Netflix",
+       x = "Year of release",
+       y = "Year added to Netflix")
+```
+
+Here, the solid black line indicates the line y=x (i.e. dots on the black line represent shows/movies that were added to Netflix the same year they were released). Almost all data lies above this line which makes sense as most media is added to Netflix after their initial release date. The single cluster that occurs marks the highest density region on the scatterplot that signifies that most media released 2015-2020 were added between 2019-2021. 
+
+We conclude EDA with a statistical test that will motivate the remainder of the visualizations. We conduct the folllwing pearson chi squared test to note if there is independence between the type and precovid binary variables:
+
+```{r}
+net_tab <- table(Netflix$type, Netflix$precovid_binary)
+chisq.test(net_tab)
+mosaicplot(net_tab, shade = TRUE)
+```
+
+From the pearson chi squared test output, the observed chi-square test statistic is 228.99 and we achieve a p value of 2.2e-16. Since the p value is less than an alpha of 0.05, we reject the null hypothesis in favor of the alternative. The two variables are not independent.
+
+This has interesting implications. The fact that there is some relationship between show/movie counts and the pre covid or post covid release date of that media reveals that the pandemic does have some observable impact on netflix trends. The remainder of the report will look into three trends in order to analyze the potential impact of COVID, specifically, we aim to answer the following research questions:
+
+* How does COVID-19 affected the geographical distribution of the producer of Netflix TV shows/movies?
+* Has the content of Netflix TV Shows/Movies changed with the COVID-19 pandemic?
+* Is there any change in the types of Netflix TV Shows/Movies that are released over time?
+
+***
+***
+
+```{r}
+library(tidyverse)
+library(ggmap)
+library(gganimate)
+require(maps)
+require(viridis)
+#loading the dataset
+netflix_titles <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2021/2021-04-20/netflix_titles.csv')
+```
+
+# Research Question 1:
+
+The research question that we are interested in for this part is **"How does COVID-19 affected the geographical distribution of the producer of Netflix TV shows/movies"**. To do that, we first need to separate the delimited values in the `country` column in the original dataset. Then, we add a new column `COVID-19 outbreak`, to indicate if the movie/show is added on Netflix pre-covid or post-covid. It is determined by value of the `date_added` column. If the year is before 2020, then it will be classified as "pre-covid". The tibble below shows the first 10 rows of the modified dataset.
+
+```{r}
+#separate the delimited values of country column
+netflix_titles <- separate_rows(netflix_titles, country, sep = ", ")
+netflix_titles$country <- gsub(",", "",netflix_titles$country)
+```
+
+```{r}
+#format date_added
+netflix_titles <- netflix_titles %>%
+  mutate(date_added = as.Date(netflix_titles$date_added,
+                              format = "%B %d, %Y"))
+#new col indicating pre-covid/post-covid
+netflix_titles <- netflix_titles %>%
+  mutate(year_added = format(netflix_titles$date_added,
+                              format = "%Y"),
+         covid_outbreak = ifelse(year_added < 2020, "Pre", "Post"))
+netflix_titles <- netflix_titles %>%
+  mutate(year_added = as.integer(year_added)) %>%
+  na.omit(netflix_titles)
+
+#head(netflix_titles, 10)
+```
+
+Because we are interested in how the distribution of `country` changes by `year_added`, we need to group the shows by `country` and `year_added` `country` is the country where the movie/show was produced; `year` is the year the show was added on Netflix; `n` is the number of shows produced in that particular country and added in that particular year. The below tibble shows the data we will be using.
+
+```{r}
+#grouped by year
+choropleth_netflix_titles_by_year <- netflix_titles %>%
+  group_by(country, year_added, covid_outbreak) %>%
+  rename(region = country) %>%
+  tally() %>%
+  rename(number_of_shows = n) %>%
+  mutate(region = ifelse(region == "United States", "USA", region), region = ifelse(region == "United Kingdom", "UK", region), )
+
+#head(choropleth_netflix_titles_by_year, 10)
+```
+
+To understand and compare the spatial distribution of production pre-covid and post-covid, we group the data by `country` and `covid_outbreak`. Then, we want to investigate how are the producers of Netflix shows/movies distributed in the world before and after covid. Therefore, we will map out the proportion of the total production per country pre/post covid in the world. In other words, we are interested in the distribution of producers has changed before and after the outbreak of COVID-19. Below shows the manipulated data:
+
+```{r}
+#table(netflix_titles$covid_outbreak)
+```
+
+
+```{r}
+#grouped by pre/post covid
+choropleth_netflix_titles_by_covid <- netflix_titles %>%
+  rename(region = country) %>%
+  group_by(region, covid_outbreak) %>%
+  tally() %>%
+  mutate(region = ifelse(region == "United States", "USA", region), region = ifelse(region == "United Kingdom", "UK", region), ) %>%
+  rename(total_number_of_shows_by_covid = n) %>%
+  mutate(
+    proportion = ifelse(covid_outbreak == "Pre", total_number_of_shows_by_covid/4440, total_number_of_shows_by_covid/1700)
+  )
+
+#head(choropleth_netflix_titles_by_covid,10)
+```
+
+
+```{r, output=FALSE}
+world_map <- map_data("world")
+choropleth_netflix_titles_by_covid_map <- left_join(world_map, choropleth_netflix_titles_by_covid, by = "region")
+
+choropleth_netflix_titles_by_covid_map$proportion[is.na(choropleth_netflix_titles_by_covid_map$proportion)] = 0
+
+#median(choropleth_netflix_titles_by_covid_map$proportion)
+```
+
+The graph plotted using this manipulated dataset shows the comparison of the spatial distributions of number of productions by country before and after the outbreak of covid. The countries colored in grey have no production added on Netflix at all. In other words, the total number of production for the countries colored in grey is 0. The countries with darker color has a larger number of total production added on Netflix. We set the `midpoint` equal to the median of the proportion, which is 0.004504505.
+
+```{r}
+#graph choice 1
+library(forcats)
+
+choropleth_netflix_titles_by_covid_map <- filter(choropleth_netflix_titles_by_covid_map, !is.na(covid_outbreak))
+
+f <- factor(c(choropleth_netflix_titles_by_covid_map$covid_outbreak), levels = c("Pre","Post"))
+
+choropleth_netflix_titles_by_covid_map <- choropleth_netflix_titles_by_covid_map %>%
+  mutate(covid_outbreak = fct_recode(f, "Pre-Covid" = "Pre", "Post-Covid" = "Post"))
+
+ggplot(data = choropleth_netflix_titles_by_covid_map[!is.na(choropleth_netflix_titles_by_covid_map$covid_outbreak),],
+               aes(long, lat, fill = proportion, group = group),  color = "black") +
+  facet_wrap(~covid_outbreak) +
+  scale_fill_gradient2(name = "Percentage", low = "lightgrey", mid = "lightblue", high = "darkblue", midpoint = 0.004504505)+
+  geom_polygon(data=world_map[world_map$order,],
+               aes(x=long, y=lat, group = group), 
+               lwd = 0.01, fill = "lightgrey", inherit.aes = F) + #Put original map in
+  geom_polygon(color = "black")+ #Draw data on top
+  labs(
+    title = "Spacial Distribution of Netflix Shows Producer, Facet by Pre/Post-Covid",
+    subtitle = "Percentage of production per country",
+    x = "Latitude",
+    y = "Longitude"
+  )+
+  theme_bw()+
+  theme(legend.position = "bottom")
+```
+
+Looking at the graph, we can see how the spatial distribution has changed after the outbreak of covid. First, countries that dominated Netflix shows production remained to be dominating. For example, we can see that the US is colored dark blue both in the pre-COVID plot and in the post-COVID plot. Similarly, India's blue also stayed the same in the post-COVID plot. There are also countries, such as Iran, that had productions before the outbreak of covid, but no production after. Most of these countries are located in Central Asia, West Asia and Europe. To the contrary, some countries in Northern and Southern Africa, for example Algeria, had no production before covid, but have a small number of production added on Netflix after covid. In general, there is a decrease in the number of production by countries in America, Europe and Asia. In Africa, some countries started adding movies/shows on Netflix after the outbreak of covid.
+
+
+To better understand how the spatial distribution has changed, we decide to animate the number of production by country over time. The below figure shows how the total number of movies/shows added on Netflix by country has changed between years. The displayed year is included in the plot title. Similar as the graph made above, the countries with darker color has a larger number of total production added on Netflix.
+
+```{r}
+library(transformr)
+library(gifski)
+```
+![](Choro_anim.gif)
+
+
+From viewing the above visual, we can see how the total number of shows released by country per year has gradually increased from 2010 to 2020. The US's color darkened significantly, and is much darker than  other regions, which shows its dominancy. The number of countries releasing films/shows on Netflix also increased. From 2020, the most obvious change we can see is that the total number of production decreased dramatically in the US. However, given that many other countries have stopped releasing shows on Netflix and the general decreasing trend in number of production, the US remains to dominate the market.
+
+**Conclusions:**
+Overall, the spatial distribution of production on Netflix did not change significantly after the outbreak of COVID-19. However, there is a decrease in the total number of production made by countries under the impact of COVID-19.
+
+
+***
+***
+
+# Research Question 2:
+
+
+```{r}
+netflix <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2021/2021-04-20/netflix_titles.csv')
+```
+
+To figure out **how Covid has affected the content of Netflix's Movies/TV Shows**, we wanted to look into the descriptions of the movies and TV shows with text analysis.
+
+```{r}
+library(tidyverse)
+library(tidytext)
+library(SnowballC)
+library(wordcloud)
+
+netflix$year_added <- as.numeric(substr(netflix$date_added, nchar(netflix$date_added)-3, nchar(netflix$date_added)))
+
+netflix$covid <- ifelse(netflix$year_added < 2020, "before", "after")
+
+netflix_tokens <- netflix  %>% unnest_tokens(word, description)
+
+data(stop_words)
+netflix_tokens <- netflix_tokens %>% filter(!(word %in% stop_words$word))
+
+netflix_tokens <- netflix_tokens %>% mutate(stem = wordStem(word))
+
+token_summary <- netflix_tokens %>% group_by(stem) %>% count() %>% ungroup() 
+```
+
+```{r}
+all_tokens <- netflix %>% unnest_tokens(word, description)
+#get_sentiments("bing")
+sentiment_tokens <- all_tokens %>% inner_join(get_sentiments("bing"))
+
+covid_sentiment_summary <- sentiment_tokens %>%
+  group_by(covid, sentiment) %>%
+  summarize(n_words = n()) %>%
+  ungroup() %>% na.omit()
+
+covid_sentiment_summary$prop <- c(2813/(2813+1931), 1931/(2813+1931), 7235/(7235+4990), 4990/(7235+4990))
+
+covid_sentiment_summary %>%
+  ggplot(aes(x = covid, y = prop, fill = sentiment)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  scale_fill_manual(values = c("darkred", "darkblue")) +
+  theme_bw()
+```
+
+After removing stop words and performing stemming on the 'description' of the Netflix TV shows and movies, we analyzed the overall sentiment to get an aggregate measure of how "positive" or "negative" the descriptions were before and after Covid. From our proportional bar chart we see that there were the same amount of positive and negative words in the descriptions. 
+
+```{r}
+before_positive_summary <- sentiment_tokens %>%
+  filter(covid == "before", sentiment == "positive") %>%
+  group_by(word) %>%
+  count()
+
+before_negative_summary <- sentiment_tokens %>%
+  filter(covid == "before", sentiment == "negative") %>%
+  group_by(word) %>%
+  count()
+
+par(mfrow = c(1,2))
+wordcloud(words = before_positive_summary$word,
+          freq = before_positive_summary$n,
+          random.order = FALSE, color = "darkblue", 
+          max.words = 100, scale=c(2,.5))
+title(main = "Before Covid Positive Words")
+
+wordcloud(words = before_negative_summary$word,
+          freq = before_negative_summary$n,
+          random.order = FALSE, color = "darkred", 
+          max.words = 100, scale=c(2,.1))
+title(main = "Before Covid Negative Words")
+
+
+after_positive_summary <- sentiment_tokens %>%
+  filter(covid == "after", sentiment == "positive") %>%
+  group_by(word) %>%
+  count()
+
+after_negative_summary <- sentiment_tokens %>%
+  filter(covid == "after", sentiment == "negative") %>%
+  group_by(word) %>%
+  count()
+
+par(mfrow = c(1,2))
+wordcloud(words = after_positive_summary$word,
+          freq = after_positive_summary$n,
+          random.order = FALSE, color = "darkblue", 
+          max.words = 100, scale=c(2,.5))
+title(main = "After Covid Positive Words")
+
+wordcloud(words = after_negative_summary$word,
+          freq = after_negative_summary$n,
+          random.order = FALSE, color = "darkred", 
+          max.words = 100, scale=c(2,.1))
+title(main = "After Covid Negative Words")
+
+```
+
+In addition, to get an idea of the common words expressing sentiment before and after Covid, we also created word clouds separating out the positive and negative words. Looking at the word clouds above, we see that most of the negative and positive words used before Covid were also being used to describe movies and TV shows that were uploaded after Covid.
+
+**Conclusions:**
+From both graphics, we were able to conclude that there was no significant change in the descriptions of the movies and TV shows from Covid based on text sentiment analysis.
+
+***
+***
+
+```{r}
+library(tidyverse)
+Netflix <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2021/2021-04-20/netflix_titles.csv')
+
+Netflix_shows <- Netflix %>% dplyr::filter(type == "TV Show")
+
+Netflix_movies <- Netflix %>% dplyr::filter(type == "Movie")
+
+Netflix_movies$duration <- gsub(' min', '', Netflix_movies$duration)
+Netflix_movies <- transform(Netflix_movies,
+                            duration = as.numeric(duration))
+
+#change date_added to date type:
+Netflix <- Netflix %>% 
+  mutate(date_added = as.Date(date_added, format = "%B %d, %Y")) 
+
+```
+
+```{R}
+library(tidytext)
+Netflix_genres <- unnest_tokens(Netflix, genre, listed_in, token='regex', pattern=", ")
+
+Netflix_genres <- Netflix_genres %>% dplyr::filter(!genre %in% c("tv shows", "movies"))
+library(ggseas)
+```
+
+# Research Question 3:
+A broader question we would like to analyze is **whether or not there have been visible trends in the types of movies/shows that Netflix has released over time**, and whether or not the Covid-19 pandemic has had any effect on these trends.
+
+First, we take a look at Netflix releases based on age rating over time.
+
+```{R}
+
+Netflix$rating<-replace(Netflix$rating, Netflix$rating %in% c("TV-Y","TV-Y7","TV-Y7"), "Directed at Young Children")
+Netflix$rating<-replace(Netflix$rating, Netflix$rating %in% c("TV-G","G"), "General Audience")
+Netflix$rating<-replace(Netflix$rating, Netflix$rating %in% c("TV-PG","PG"), "PG")
+Netflix$rating<-replace(Netflix$rating, Netflix$rating %in% c("TV-14","PG-13"), "PG-13 / TV-14")
+Netflix$rating<-replace(Netflix$rating, Netflix$rating %in% c("TV-MA","R","NC-17"), "Mature/Rated R")
+
+vids_per_day <- Netflix %>% group_by(date_added, rating, type) %>% summarize(n_vids = n())
+
+combo_table <- expand.grid("date_added" = unique(vids_per_day$date_added), "rating" = unique(vids_per_day$rating), "type" = unique(vids_per_day$type))
+
+combo_table <- combo_table %>% as_tibble()
+
+new_table <- combo_table %>% dplyr::left_join(vids_per_day, by = c("date_added", "rating", "type"))
+
+vids_per_day <- new_table %>% mutate(n_vids = ifelse(is.na(n_vids), 0, n_vids))
+
+vids_per_day$rating <- factor(vids_per_day$rating, levels = c("Directed at Young Children", "General Audience", "PG", "PG-13 / TV-14", "Mature/Rated R"))
+
+  ggplot(vids_per_day %>% dplyr::filter(rating %in% c("Directed at Young Children", "General Audience", "PG", "PG-13 / TV-14", "Mature/Rated R")), aes(x = date_added, y = after_stat(count))) +
+  geom_vline(xintercept=as.Date("2020-03-11"), 
+             color = "grey", alpha = 0.5, size = 2) +
+  stat_rollapplyr(aes(x=date_added, y=n_vids, color = rating), width = 61) +
+  scale_color_manual(values = c("Directed at Young Children" = "#F5CD08",
+                                "General Audience" = "#F5A208",
+                                "PG" = "#4BF85C",
+                                "PG-13 / TV-14" = "#4BCAF8",
+                                "Mature/Rated R" = "#F24BF8")) +
+  facet_wrap(~ type, ncol = 1, scales = "free_y") + 
+  scale_x_date(limits = as.Date(c("2017-01-01","2021-01-01"))) +
+  labs(x = "Year added to Netflix", y = "Avergage number of releases per day", 
+       title = "Number of Netflix releases by rating", color = "Rating")+
+    theme_bw()
+```
+
+In this graph, the vertical grey line denotes the date the World Health Organization declared Covid-19 a national pandemic. Although the ratings of TV Shows do not seem to be affected by this event, there is a notable drop in the average number of Movie releases with ratings PG and up coinciding with this date. In terms of the marginal distribution of ratings, it seems consistent among both Movies and TV Shows that Netflix releases more media with higher age ratings; with 'Mature/Rated R' and 'PG-13/TV-14' rated media consistently having higher release counts than the rest. In terms of trends over time, the number of releases for Mature rated TV Shows has been on a visible incline since 2017. For all other categories, it appears there has also been a slight increase in releases overtime, up until the dip that occurs a little a little after 2020.
+
+Now, we take a look at Netflix releases categorized by genre tags over time.
+
+```{R}
+Netflix_genres$genre<-replace(Netflix_genres$genre, Netflix_genres$genre %in% c("documentaries","docuseries","science & nature tv"), "Documentaries")
+Netflix_genres$genre<-replace(Netflix_genres$genre, Netflix_genres$genre %in% c("dramas","tv dramas"), "Dramas")
+Netflix_genres$genre<-replace(Netflix_genres$genre, Netflix_genres$genre %in% c("comedies","tv comedies"), "Comedies")
+Netflix_genres$genre<-replace(Netflix_genres$genre, Netflix_genres$genre %in% c("action & adventure","tv action & adventure"), "Action & Adventure")
+Netflix_genres$genre<-replace(Netflix_genres$genre, Netflix_genres$genre %in% c("anime features","anime series"), "Anime")
+Netflix_genres$genre<-replace(Netflix_genres$genre, Netflix_genres$genre %in% c("classic & cult tv","classic movies", "cult movies"), "Classics")
+Netflix_genres$genre<-replace(Netflix_genres$genre, Netflix_genres$genre %in% c("romantic movies","romantic tv shows"), "Romance")
+Netflix_genres$genre<-replace(Netflix_genres$genre, Netflix_genres$genre %in% c("sci-fi & fantasy","tv sci-fi & fantasy"), "Sci-fi & Fantasy")
+Netflix_genres$genre<-replace(Netflix_genres$genre, Netflix_genres$genre %in% c("thrillers","tv thrillers"), "Thrillers")
+Netflix_genres$genre<-replace(Netflix_genres$genre, Netflix_genres$genre %in% c("horror movies","tv horror"), "Horror")
+Netflix_genres$genre<-replace(Netflix_genres$genre, Netflix_genres$genre %in% c("children & family movies","kids' tv"), "Childrens")
+Netflix_genres$genre<-replace(Netflix_genres$genre, Netflix_genres$genre %in% c("stand-up comedy","stand-up comedy & talk shows"), "Stand-up comedy")
+Netflix_genres$genre<-replace(Netflix_genres$genre, Netflix_genres$genre %in% c("international movies", "international tv shows"), "International")
+
+
+Netflix_genres <- Netflix_genres %>% group_by(date_added, genre, type) %>% summarize(n_vids = n())
+
+combo_table <- expand.grid("date_added" = unique(Netflix_genres$date_added), "genre" = unique(Netflix_genres$genre), "type" = unique(Netflix_genres$type))
+
+combo_table <- combo_table %>% as_tibble()
+
+new_table <- combo_table %>% dplyr::left_join(Netflix_genres, by = c("date_added", "genre", "type"))
+
+Netflix_genres <- new_table %>% mutate(n_vids = ifelse(is.na(n_vids), 0, n_vids))
+
+genre_pick <- c("Documentaries", "Dramas", "Comedies", "Childrens", "International")
+
+Netflix_genres$genre <- factor(Netflix_genres$genre, levels = c("International", "Dramas", "Comedies", "Documentaries", "Childrens"))
+
+Netflix_genres %>%
+  filter(!(genre %in% genre_pick)) %>%
+  ggplot() +
+  geom_vline(xintercept=as.Date("2020-03-11"), 
+             color = "grey", alpha = 0.5, size = 2) +
+  stat_rollapplyr(width = 61, align = "right", aes(x = date_added, y = n_vids, group = genre),
+                  color = "grey", alpha = .5, size=.5) +
+  stat_rollapplyr(data = filter(Netflix_genres,
+                                genre %in% genre_pick),
+                  width = 61, align = "right", aes(x = date_added, y = n_vids, color = genre),
+                  alpha = 1, size=.5) +
+  facet_wrap(~ type, ncol = 1, scales = "free_y") + 
+  scale_x_date(limits = as.Date(c("2017-01-01","2021-01-01"))) + 
+  theme_bw() +
+  labs(x = "Year added to Netflix", y = "Avergage number of releases day", 
+       title = "Number of Netflix releases by genre", color = "Genre")
+
+```
+
+This graph shows the rolling average releases for the top 5 Netflix tags over time (with the remaining tags still visible but in grey). As before, the vertical grey line denotes the start of the Covid-19 pandemic. As before with the Netflix movies, there is a notable drop in the number of releases for almost all categories released around the start of the pandemic, however this quirk does not appear to occur for TV Shows. For Netflix Movies there appears to be a gap separating the top 3 tags from the rest, and just before 2020 their release counts converge before dropping. With TV Shows there is also a notable gap between 'international' tagged shows and the rest. Like before, most tags for both Movies and TV Shows appear to gradually increase, although for Movies there appears to be a peak at 2019, and in TV shows the peak is around 2020.
+
+**Conclusions:**
+In general, the order of the most common Netflix tags and age-ratings have stayed the same from 2017 to 2021. In addition, although there seems to be no effect of the COVID-19 Pandemic on TV Show releases, there is a noticeable drop in Movie releases coinciding with the time that COVID-19 was announced as a pandemic.
+
+***
+***
+
+# Further Research
+This report covers many Netflix release trends. However, we do recognize that the data set is not complete. For instance, many shows concluded production before the COVID 19 pandemic and thus the release date data and date added data were not strongly affected by the pandemic. Additionally, research can be improved as more post COVID data gets added to the data set. Finally, A significant set of variables involving user data (views, subscription numbers, etc.) are not in this data set. A study that tracks these trends can supplement our findings on pandemic effect on overall netflix production and usage trends, and a study of these variables is likely to yield some significant pre/post pandemic trends. 
+
